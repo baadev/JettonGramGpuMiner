@@ -99,7 +99,7 @@ async function updateBestGivers(liteClient: TonClient4 | LiteClient, myAddress: 
   
         return false
     })
-    console.log('Whitelist: ', whitelistGivers.length)
+    // console.log('Whitelist: ', whitelistGivers.length)
 
     if (liteClient instanceof TonClient4) {
         const lastInfo = await CallForSuccess(() => liteClient.getLastBlock())
@@ -235,7 +235,7 @@ async function main() {
             //
         }
         if (!mined) {
-            console.log(`${new Date()}: not mined`, seed, i++)
+            // console.log(`${new Date()}: not mined`, seed, i++)
         }
         if (mined) {
             const [newSeed] = await getPowInfo(liteClient, Address.parse(giverAddress))

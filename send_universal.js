@@ -97,7 +97,7 @@ function updateBestGivers(liteClient, myAddress) {
             }
             return false;
         });
-        console.log('Whitelist: ', whitelistGivers.length);
+        // console.log('Whitelist: ', whitelistGivers.length);
         if (liteClient instanceof ton_1.TonClient4) {
             const lastInfo = yield CallForSuccess(() => liteClient.getLastBlock());
             let newBestGiber = { address: '', coins: 0 };
@@ -221,7 +221,7 @@ function main() {
                 //
             }
             if (!mined) {
-                console.log(`${new Date()}: not mined`, seed, i++);
+                // console.log(`${new Date()}: not mined`, seed, i++);
             }
             if (mined) {
                 const [newSeed] = yield getPowInfo(liteClient, core_1.Address.parse(giverAddress));
