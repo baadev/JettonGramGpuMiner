@@ -9,6 +9,6 @@ sh ./start_tonhub_4.sh &
 sh ./start_tonhub_5.sh &
 sh ./start_tonhub_6.sh &
 sh ./start_tonhub_7.sh &
-sh ./start_tonhub_8.sh &
+
 
 echo "All tonhub scripts started in the background."
