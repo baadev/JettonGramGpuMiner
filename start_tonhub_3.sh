@@ -3,6 +3,6 @@ npm install
 
 
 while true; do
-  node send_universal.js --api tonhub --bin ./pow-miner-cuda --givers 1000 --gpu 3 --timeout 2
+  node send_universal.js --api tonhub --bin ./pow-miner-cuda --givers 1000 --gpu 3 --timeout 3
   sleep 1;
 done;
