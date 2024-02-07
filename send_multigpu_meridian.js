@@ -22,11 +22,13 @@ const child_process_1 = require("child_process");
 const fs_1 = __importDefault(require("fs"));
 const ton_2 = require("@ton/ton");
 const dotenv_1 = __importDefault(require("dotenv"));
-const givers_1 = require("./givers");
+const givers_meridian_1 = require("./givers_meridian");
 const arg_1 = __importDefault(require("arg"));
 const ton_lite_client_1 = require("ton-lite-client");
 const client_1 = require("./client");
 const tonapi_sdk_js_1 = require("tonapi-sdk-js");
+const util_1 = require("util");
+const exec = (0, util_1.promisify)(child_process_1.exec);
 dotenv_1.default.config({ path: 'config.txt.txt' });
 dotenv_1.default.config({ path: '.env.txt' });
 dotenv_1.default.config();
@@ -35,26 +37,34 @@ const args = (0, arg_1.default)({
     '--givers': Number, // 100 1000 10000
     '--api': String, // lite, tonhub, tonapi
     '--bin': String, // cuda, opencl or path to miner
-    '--gpu': Number, // gpu id, default 0
+    '--gpu-count': Number, // GPU COUNT!!!
     '--timeout': Number, // Timeout for mining in seconds
     '--allow-shards': Boolean, // if true - allows mining to other shards
     '-c': String, // blockchain config
 });
-let givers = givers_1.givers1000;
+let givers = givers_meridian_1.givers1000;
 if (args['--givers']) {
     const val = args['--givers'];
-    const allowed = [100, 1000];
+    const allowed = [100, 1000, 10000, 100000];
     if (!allowed.includes(val)) {
         throw new Error('Invalid --givers argument');
     }
     switch (val) {
         case 100:
-            givers = givers_1.givers100;
+            givers = givers_meridian_1.givers100;
             console.log('Using givers 100');
             break;
         case 1000:
-            givers = givers_1.givers1000;
+            givers = givers_meridian_1.givers1000;
             console.log('Using givers 1 000');
+            break;
+        case 10000:
+            givers = givers_meridian_1.givers10000;
+            console.log('Using givers 10 000');
+            break;
+        case 100000:
+            givers = givers_meridian_1.givers100000;
+            console.log('Using givers 100 000');
             break;
     }
 }
@@ -75,10 +85,10 @@ if (args['--bin']) {
     }
 }
 console.log('Using bin', bin);
-const gpu = (_a = args['--gpu']) !== null && _a !== void 0 ? _a : 0;
+const gpus = (_a = args['--gpu-count']) !== null && _a !== void 0 ? _a : 1;
 const timeout = (_b = args['--timeout']) !== null && _b !== void 0 ? _b : 5;
 const allowShards = (_c = args['--allow-shards']) !== null && _c !== void 0 ? _c : false;
-console.log('Using GPU', gpu);
+console.log('Using GPUs count', gpus);
 console.log('Using timeout', timeout);
 const mySeed = process.env.SEED;
 const totalDiff = BigInt('115792089237277217110272752943501742914102634520085823245724998868298727686144');
@@ -107,31 +117,54 @@ function getPowInfo(liteClient, address) {
     return __awaiter(this, void 0, void 0, function* () {
         if (liteClient instanceof ton_1.TonClient4) {
             const lastInfo = yield CallForSuccess(() => liteClient.getLastBlock());
-            const powInfo = yield CallForSuccess(() => liteClient.runMethod(lastInfo.last.seqno, address, 'get_pow_params', []));
+            const powInfo = yield CallForSuccess(() => liteClient.runMethod(lastInfo.last.seqno, address, 'get_mining_status', []));
             // console.log('pow info', powInfo, powInfo.result)
             const reader = new core_1.TupleReader(powInfo.result);
-            const seed = reader.readBigNumber();
             const complexity = reader.readBigNumber();
             const iterations = reader.readBigNumber();
+            const seed = reader.readBigNumber();
+            const A = reader.readBigNumber();
+            const B = reader.readBigNumber();
+            const C = reader.readBigNumber();
+            const left = reader.readBigNumber();
+            // const left = BigInt(powInfo.stack[6].num as string)
+            if (left < BigInt(1)) {
+                throw new Error('no mrdn left');
+            }
             return [seed, complexity, iterations];
         }
         else if (liteClient instanceof ton_lite_client_1.LiteClient) {
             const lastInfo = yield liteClient.getMasterchainInfo();
-            const powInfo = yield liteClient.runMethod(address, 'get_pow_params', Buffer.from([]), lastInfo.last);
+            const powInfo = yield liteClient.runMethod(address, 'get_mining_status', Buffer.from([]), lastInfo.last);
             const powStack = core_1.Cell.fromBase64(powInfo.result);
             const stack = (0, core_1.parseTuple)(powStack);
+            // console.log('pow stack', stack)
             const reader = new core_1.TupleReader(stack);
-            const seed = reader.readBigNumber();
             const complexity = reader.readBigNumber();
             const iterations = reader.readBigNumber();
+            const seed = reader.readBigNumber();
+            const A = reader.readBigNumber();
+            const B = reader.readBigNumber();
+            const C = reader.readBigNumber();
+            const left = reader.readBigNumber();
+            // const left = BigInt(powInfo.stack[6].num as string)
+            if (left < BigInt(1)) {
+                throw new Error('no mrdn left');
+            }
             return [seed, complexity, iterations];
         }
         else if (liteClient instanceof tonapi_sdk_js_1.Api) {
             try {
-                const powInfo = yield CallForSuccess(() => liteClient.blockchain.execGetMethodForBlockchainAccount(address.toRawString(), 'get_pow_params', {}), 50, 300);
-                const seed = BigInt(powInfo.stack[0].num);
-                const complexity = BigInt(powInfo.stack[1].num);
-                const iterations = BigInt(powInfo.stack[2].num);
+                const powInfo = yield CallForSuccess(() => liteClient.blockchain.execGetMethodForBlockchainAccount(address.toRawString(), 'get_mining_status', {}), 50, 300);
+                // console.log('pow', powInfo.stack)
+                const complexity = BigInt(powInfo.stack[0].num);
+                const seed = BigInt(powInfo.stack[2].num);
+                const iterations = BigInt(powInfo.stack[1].num);
+                const left = BigInt(powInfo.stack[6].num);
+                if (left < BigInt(1)) {
+                    throw new Error('no mrdn left');
+                }
+                // console.log('pow stack', powInfo.stack)
                 return [seed, complexity, iterations];
             }
             catch (e) {
@@ -149,7 +182,7 @@ let start = Date.now();
 function main() {
     var _a;
     return __awaiter(this, void 0, void 0, function* () {
-        const minerOk = yield testMiner();
+        const minerOk = yield testMiner(gpus);
         if (!minerOk) {
             console.log('Your miner is not working');
             console.log('Check if you use correct bin (cuda, amd).');
@@ -208,23 +241,51 @@ function main() {
                 yield delay(200);
                 continue;
             }
-            const randomName = (yield (0, crypto_1.getSecureRandomBytes)(8)).toString('hex') + '.boc';
-            const path = `bocs/${randomName}`;
-            const command = `${bin} -g ${gpu} -F 128 -t ${timeout} ${targetAddress} ${seed} ${complexity} ${iterations} ${giverAddress} ${path}`;
-            try {
-                const output = (0, child_process_1.execSync)(command, { encoding: 'utf-8', stdio: "pipe" }); // the default is 'buffer'
-            }
-            catch (e) {
-            }
-            let mined = undefined;
-            try {
-                mined = fs_1.default.readFileSync(path);
-                lastMinedSeed = seed;
-                fs_1.default.rmSync(path);
-            }
-            catch (e) {
-                //
-            }
+            const promises = [];
+            let handlers = [];
+            const mined = yield new Promise((resolve, reject) => __awaiter(this, void 0, void 0, function* () {
+                let rest = gpus;
+                for (let i = 0; i < gpus; i++) {
+                    const randomName = (yield (0, crypto_1.getSecureRandomBytes)(8)).toString('hex') + '.boc';
+                    const path = `bocs/${randomName}`;
+                    const command = `-g ${i} -F 128 -t ${timeout} ${targetAddress} ${seed} ${complexity} 999999999999 ${giverAddress} ${path}`;
+                    const procid = (0, child_process_1.spawn)(bin, command.split(' '), { stdio: "pipe" });
+                    // procid.on('message', (m) => {
+                    //     console.log('message', m)
+                    // })
+                    // procid.stdout.on('data', (data) => {
+                    //     console.log(`stdout: ${data}`);
+                    // })
+                    // procid.stderr.on('data', (data) => {
+                    //     console.log(`err: ${data}`);
+                    // })
+                    handlers.push(procid);
+                    procid.on('exit', () => {
+                        let mined = undefined;
+                        try {
+                            const exists = fs_1.default.existsSync(path);
+                            if (exists) {
+                                mined = fs_1.default.readFileSync(path);
+                                resolve(mined);
+                                lastMinedSeed = seed;
+                                fs_1.default.rmSync(path);
+                                for (const handle of handlers) {
+                                    handle.kill('SIGINT');
+                                }
+                            }
+                        }
+                        catch (e) {
+                            //
+                            console.log('not mined', e);
+                        }
+                        finally {
+                            if (--rest === 0) {
+                                resolve(undefined);
+                            }
+                        }
+                    });
+                }
+            }));
             if (!mined) {
                 console.log(`${formatTime()}: not mined`, seed.toString(16).slice(0, 4), i++, success, Math.floor((Date.now() - start) / 1000));
             }
@@ -267,7 +328,7 @@ function sendMinedBoc(wallet, seqno, keyPair, giverAddress, boc) {
                 secretKey: keyPair.secretKey,
                 messages: [(0, core_1.internal)({
                         to: giverAddress,
-                        value: (0, core_1.toNano)('0.05'),
+                        value: (0, core_1.toNano)('0.08'),
                         bounce: true,
                         body: boc,
                     })],
@@ -321,7 +382,7 @@ function sendMinedBoc(wallet, seqno, keyPair, giverAddress, boc) {
                     secretKey: keyPair.secretKey,
                     messages: [(0, core_1.internal)({
                             to: giverAddress,
-                            value: (0, core_1.toNano)('0.05'),
+                            value: (0, core_1.toNano)('0.08'),
                             bounce: true,
                             body: boc,
                         })],
@@ -333,26 +394,29 @@ function sendMinedBoc(wallet, seqno, keyPair, giverAddress, boc) {
         }
     });
 }
-function testMiner() {
+function testMiner(gpus) {
     return __awaiter(this, void 0, void 0, function* () {
-        const randomName = (yield (0, crypto_1.getSecureRandomBytes)(8)).toString('hex') + '.boc';
-        const path = `bocs/${randomName}`;
-        const command = `${bin} -g ${gpu} -F 128 -t ${timeout} kQBWkNKqzCAwA9vjMwRmg7aY75Rf8lByPA9zKXoqGkHi8SM7 229760179690128740373110445116482216837 53919893334301279589334030174039261347274288845081144962207220498400000000000 10000000000 kQBWkNKqzCAwA9vjMwRmg7aY75Rf8lByPA9zKXoqGkHi8SM7 ${path}`;
-        try {
-            const output = (0, child_process_1.execSync)(command, { encoding: 'utf-8', stdio: "pipe" }); // the default is 'buffer'
-        }
-        catch (e) {
-        }
-        let mined = undefined;
-        try {
-            mined = fs_1.default.readFileSync(path);
-            fs_1.default.rmSync(path);
-        }
-        catch (e) {
-            //
-        }
-        if (!mined) {
-            return false;
+        for (let i = 0; i < gpus; i++) {
+            const gpu = i;
+            const randomName = (yield (0, crypto_1.getSecureRandomBytes)(8)).toString('hex') + '.boc';
+            const path = `bocs/${randomName}`;
+            const command = `${bin} -g ${gpu} -F 128 -t ${timeout} kQBWkNKqzCAwA9vjMwRmg7aY75Rf8lByPA9zKXoqGkHi8SM7 229760179690128740373110445116482216837 53919893334301279589334030174039261347274288845081144962207220498400000000000 10000000000 kQBWkNKqzCAwA9vjMwRmg7aY75Rf8lByPA9zKXoqGkHi8SM7 ${path}`;
+            try {
+                const output = (0, child_process_1.execSync)(command, { encoding: 'utf-8', stdio: "pipe" }); // the default is 'buffer'
+            }
+            catch (e) {
+            }
+            let mined = undefined;
+            try {
+                mined = fs_1.default.readFileSync(path);
+                fs_1.default.rmSync(path);
+            }
+            catch (e) {
+                //
+            }
+            if (!mined) {
+                return false;
+            }
         }
         return true;
     });
